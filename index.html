@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">  <!--Sets language as English-->
+
+<head>
+  <meta charset="UTF-8" />  <!--Metadata: Uses UTF-8 encoding-->
+  <title>T2D SNP Explorer</title> <!--Sets our tab name -->
+  <link rel="stylesheet" href="/static/styles.css" /> <!-- Linking our CSS file for styling-->
+</head>
+
+
+
+<body>
+  <header>  <!--Header to display the title-->
+    <h1>Welcome to Mantic Minotaur's T2D SNP Explorer</h1> <!--Sets our title page name -->
+  </header> 
+
+  <main>
+    <!-- Section for searching -->
+    <section id="searchSection">
+      <h2>Search SNPs</h2>
+      <form id="searchForm">  <!--Creates a search form where users enter SNP details.-->
+        <select id="searchType">  <!--Creates a dropdown menu, for the search type, default selection is by SNP ID.-->
+          <option value="snp" selected>Search by SNP ID (rsID)</option>
+          <option value="coordinates">Search by Genomic Coordinates</option>
+          <option value="gene">Search by Gene Name</option>
+          <option value="population">Search by Population</option>
+        </select>
+        <!---->
+        <input type="text" id="snpInput" placeholder="Enter SNP ID (e.g. rs12345)" style="display: none;">
+        <input type="text" id="geneInput" placeholder="Enter Gene Name" style="display: none;">
+        <input type="text" id="populationInput" placeholder="Enter Associated Population (e.g. SA)" style="display: none;">
+        <!--section only shown when "Genomic Coordinates" is selected (user can search by chromasome alone)-->
+        <div id="coordinateFields" style="display: none;"> 
+            <input type="text" id="chromosomeInput" placeholder="Chromosome">
+            <input type="text" id="startInput" placeholder="Start Position">
+            <input type="text" id="endInput" placeholder="End Position">
+        </div>
+        <!--button triggers the search request-->
+        <button type="submit">Search</button>
+      </form> 
+    </section>
+   
+    <br>
+    <section id="searchDescription">
+      <br>
+        <p>
+            The <strong>T2D SNP Explorer</strong> allows you to search for genetic variants and selection statistics related to 
+            <strong>Type 2 Diabetes (T2D)</strong>. You can search by <strong>SNP ID, Gene Name, Chromosome Region,</strong> or 
+            <strong>Population</strong> to retrieve relevant genetic data.
+        </p>
+    
+        <h4>What Can You Explore?</h4>
+    <ul>
+        <li><strong>SNP Details:</strong> Chromosome location, allele frequency, p-values, Genomic Coordinates.</li>
+        <li><strong>Gene Annotations:</strong> Functional terms, associated diseases.</li>
+        <li><strong>Population-Level Selection Statistics:</strong> FST, iHS, allele frequency.</li>
+    </ul>
+
+    <h4>How to Search?</h4>
+    <p>
+        Simply enter your search term, select a search type, and view results instantly.
+        Use the dropdown to choose a search type:
+    </p>
+
+    <ul>
+        <li><strong>SNP ID:</strong> Example - <code>rs12345</code></li>
+        <li><strong>Gene Name:</strong> Example - <code>TCF7L2</code></li>
+        <li><strong>Chromosome:</strong> Example - <code>10</code></li>
+        <li><strong>Genomic Coordinates:</strong> Example - <code>10:100000-500000</code></li>
+        <li><strong>Population Abbreviation:</strong> Example - <code>SA</code></li>
+    </ul>
+    </section>
+  
+  </main>
+
+  <footer>
+    <p>&copy; 2025 T2D SNP Explorer</p>
+  </footer>
+
+  <!--JavaScript Integration area-->
+  <!-- Scripts to integrate js code, external JavaScript modules for functionality -->
+  <script type="module" src="/static/api.js"></script>  <!--Handles API requests-->
+  <script type="module" src="/static/charts.js"></script> <!--Used for visualization-->
+  <script type="module" src="/static/main.js"></script> <!-- Main search logic area/code-->
+  <script type="module" src="/static/ui.js"></script> <!-- UI Enhancements -->
+
+</body>
+</html>

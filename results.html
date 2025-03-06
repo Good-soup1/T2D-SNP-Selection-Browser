@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">    <!--Sets language as English-->
+
+<head>
+    <meta charset="UTF-8">
+    <title>Search Results - T2D SNP Explorer</title>    <!--Sets our tab name -->
+    <link rel="stylesheet" href="/static/styles.css" /> <!-- Linking our CSS file for styling-->
+</head>
+
+<body>
+    <header>
+        <h1>T2D SNP Explorer Search Results</h1>    <!--Sets results page name -->
+    </header>
+
+    <main>
+        <table> <!-- Creats Table for displaying search results from associations data-->
+            <thead>
+                <tr>
+                    <th>SNP ID</th>
+                    <th>Chromosome</th>
+                    <th>Start Position</th>
+                    <th>End Position</th>
+                    <th>Gene</th>
+                    <th>P-Value</th>    <!--Statistical significance-->
+                    <th>Population</th>
+                    <th>Alelle Frequency</th> <!--Association Genetic variation data)-->
+                </tr>
+            </thead>
+            <tbody id="resultsTableBody">
+            </tbody>            
+        </table>
+
+        <!--Buttons-->
+        <button id="newSearchButton">Different search?</button> <!--Takes our user back to search/index page-->
+        <button id="downloadResults">Download Results</button>  <!--Download: allows users to download the displayed data-->
+    </main>
+
+    <footer>
+        <p>&copy; 2025 T2D SNP Explorer</p>
+    </footer>
+
+    <!--JavaScript Integration area-->
+    <!-- Scripts to integrate js code, external JavaScript modules for functionality -->
+    <script type="module" src="/static/ui.js"></script> <!--Handles UI updates-->
+    <script type="module" src="/static/main.js"></script>
+</body>
+
+</html>

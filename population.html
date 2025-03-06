@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">    <!--Sets language as English-->
+
+<head>
+    <meta charset="UTF-8">
+    <title>Population Information - T2D SNP Explorer</title>    <!--Sets our tab name -->
+    <link rel="stylesheet" href="/static/styles.css" /> <!-- Linking our CSS file for styling-->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <!-- External Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script> <!-- Annotation Plugin -->
+    <script src="/static/chart.js"></script>
+</head>
+
+<body>
+    <header>    <!--Header to display the title-->
+        <h1>Population Information for: <span id="populationName"></span></h1>
+        <script>
+            // Extract population name from URL path (e.g., /population/SA) to display dynamically
+            const populationName = window.location.pathname.split("/").pop();
+            document.getElementById("populationName").textContent = populationName || "Unknown";
+        </script>        
+    </header>
+
+    <main>
+        <section id="populationDetails"> <!--Display Population Data -->
+            <h2>Population Details for {{ population_name }} SNP data</h2>
+            {% if population_info %}
+                <p><strong>Geographical Sampling Locations:</strong> {{ population_info.geographical_sampling }}</p>
+                <p><strong>Genetic Diversity & Relatedness:</strong> {{ population_info.genetic_diversity }}</p>
+                <p><strong>Disease & Trait Associations:</strong> {{ population_info.disease_traits }}</p>
+            {% else %}
+                <p>No details available for this population.</p>
+            {% endif %}
+        </section>
+        
+        {% if sub_populations %}
+        
+        <section id="subPopulationDetails">
+            <h2>Sub-population Information</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Sub-population(s)</th>
+                        <th>Genetic Diversity</th>
+                        <th>Disease & Trait Associations</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sub in sub_populations %}
+                    <tr>
+                        <td>{{ sub.sub_population }}</td>
+                        <td>{{ sub.genetic_diversity }}</td>
+                        <td>{{ sub.disease_traits }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+        {% endif %}      
+        
+        <br>
+
+        <!--Statistics Section-->
+        <!--Displays FST Values (Population differentiation statistics) & Displays iHS Values (Positive selection statistics).-->
+        <section id="populationStatistics">
+            <h2>Summary Statistics of Positive Selection: </h2>
+
+            <h2>FST Values</h2>
+            <h4>Sub-Population specific Stats:</h4>
+            <label for="fstPopulationCompare">Select Population Comparison:</label>
+            <select id="fstPopulationCompare">
+                <option value="">-- Select Population --</option>
+                <script>
+                    const allowedPopulations = ["SA", "EU"];
+                    console.log("Current Population Page:", populationName); // Debugging step
+
+                    if (allowedPopulations.includes(populationName)) {
+                        document.write('<option value="fst_GIHvsGBR">GIH vs GBR</option>');
+                    }
+                </script>
+            </select>
+
+            <label for="fstChromosomeSelect">Select Chromosome:</label>
+            <select id="fstChromosomeSelect" disabled>
+                <option value="">-- Select Chromosome --</option>
+            </select>
+
+            <!-- Scrollable table container -->
+            <div id="fstTableContainer" style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc;"></div>
+                <table id="fstTable">
+                    <thead>
+                        <tr>
+                            <th>Chromosome</th>
+                            <th>Position</th>
+                            <th>SNP</th>
+                            <th>FST</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            {% if fst_statistics %}
+                <p><strong>Overall Mean FST Score:</strong> {{ fst_statistics.mean_fst }}</p>
+                <p><strong>Overall FST Standard Deviation:</strong> {{ fst_statistics.std_fst }}</p>
+            {% else %}
+                <p>FST statistics not available for this population.</p>
+            {% endif %}
+
+            {% if population_name == "SA" %}
+                <section id="fstpopulationstatistics">
+                    <h3>GIH FST Scores Across Chromosomes Chart</h3>
+                    <label for="chromosome">Select Chromosome to Highlight:</label>
+                    <select id="chromosome">
+                        <option value="">ALL Chromosomes</option>
+                    </select>
+                    <div>
+                        <canvas id="fstChart" width="900" height="500"></canvas>
+                    </div>
+                </section>
+        
+                <script>
+                    let chartInstance = null;
+                    let allData = { positions: [], fst_values: [], chromosomes: [] };
+                    
+                    async function fetchChromosomes() {
+                        try {
+                            const response = await fetch('/populations');
+                            const data = await response.json();
+                            const dropdown = document.getElementById("chromosome");
+                            data.chromosomes.forEach(chromosome => {
+                                const option = document.createElement("option");
+                                option.value = chromosome;
+                                option.textContent = `Chromosome ${chromosome}`;
+                                dropdown.appendChild(option);
+                            });
+                        } catch (error) {
+                            console.error("Error fetching chromosomes:", error);
+                        }
+                    }
+        
+                    async function fetchAllFstData() {
+                        try {
+                            const response = await fetch(`/fst_data`);
+                            const data = await response.json();
+                            allData = data;
+                            renderScatterPlot(""); // Default: No highlight
+                        } catch (error) {
+                            console.error("Error fetching FST data:", error);
+                        }
+                    }
+        
+                    function renderScatterPlot(selectedChromosome) {
+                        let ctx = document.getElementById("fstChart").getContext("2d");
+                        if (chartInstance) chartInstance.destroy();
+                        
+                        let backgroundData = [];
+                        let highlightData = [];
+                        
+                        allData.positions.forEach((position, index) => {
+                            let point = { x: position, y: allData.fst_values[index] };
+                            let chromosome = String(allData.chromosomes[index]);
+                            
+                            if (selectedChromosome && chromosome === selectedChromosome) {
+                                highlightData.push(point);
+                            } else {
+                                backgroundData.push(point);
+                            }
+                        });
+                        const maxFSTValue = Math.max(...allData.fst_values);
+                        const maxYValue = maxFSTValue + 0.05;
+                        chartInstance = new Chart(ctx, {
+                            type: "scatter",
+                            data: {
+                                datasets: [
+                                    {
+                                        label: "All Chromosomes",
+                                        data: backgroundData,
+                                        backgroundColor: "rgba(0, 0, 255, 0.2)",
+                                        borderColor: "blue",
+                                        pointRadius: 2,
+                                    },
+                                    {
+                                        label: selectedChromosome ? `Chromosome ${selectedChromosome}` : "No Highlight",
+                                        data: highlightData,
+                                        backgroundColor: "rgba(255, 0, 0, 1)",
+                                        borderColor: "red",
+                                        pointRadius: 5,
+                                    },
+                                ],
+                            },
+                            options: {
+                                responsive: false,
+                                maintainAspectRatio: false,
+                                scales: {
+                                    x: {
+                                        title: { display: true, text: "Genomic Position (POS)" },
+                                    },
+                                    y: {
+                                        title: { display: true, text: "FST Value" },
+                                        min: 0,
+                                        max: maxYValue,
+                                    },
+                                },
+                            },
+                        });
+                    }
+                    
+                    document.getElementById("chromosome").addEventListener("change", function() {
+                        renderScatterPlot(this.value);
+                    });
+                    
+                    window.onload = function() {
+                        fetchAllFstData();
+                        fetchChromosomes();
+                    };
+                </script>
+            {% endif %}
+
+            <br><br>
+            <h2>IHS Values</h2>
+            <h4>Sub-Population Specific Stats:</h4>
+            <label for="ihsChromosomeSelect">Select Chromosome:</label>
+            <select id="ihsChromosomeSelect">
+                <option value="">-- Select Chromosome --</option>
+            </select>
+
+            <label for="ihsSubpopSelect">Select Sub-population:</label>
+            <select id="ihsSubpopSelect">
+                <option value="">-- Select Sub-population --</option>
+            </select>
+
+            <!-- Scrollable table container -->
+            <div id="ihsTableContainer" style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc;">
+                <table id="ihsTable">
+                    <thead>
+                        <tr>
+                            <th>Chromosome</th>
+                            <th>Position</th>
+                            <th>iHS Score</th>
+                            <th>Mean iHS</th>
+                            <th>Std iHS</th>
+                            <th>Population</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>               
+                </table>
+            </div>
+            
+
+            <h4>Overall Stats:</h4>
+            {% if ihs_statistics %}
+                <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Chromosome</th>
+                                <th>Mean iHS Score</th>
+                                <th>iHS Standard Deviation</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ihs in ihs_statistics %}
+                            <tr>
+                                <td>Chromosome {{ ihs.chromosome }}</td>
+                                <td>{{ ihs.mean }}</td>
+                                <td>{{ ihs.std }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p>iHS statistics not available for this population.</p>
+            {% endif %}
+
+            
+
+            {% if population_name == "SA" %}
+                <section id ="populationStatistics">
+                    <h3> iHS GIH Vs PJL Chart</h3>
+                </section>
+                <div>
+                    <canvas id="scatter-plot", width="900" height="500"></canvas>
+                </div>
+                
+                <script>
+                    const ctx = document.getElementById('scatter-plot').getContext('2d');
+                
+                    const chartData = {
+                        datasets: []
+                    };
+                
+                    let chart = new Chart(ctx, {
+                        type: 'scatter',
+                        data: chartData,
+                        options: {
+                            responsive: false,
+                            plugins: {
+                                legend: {
+                                    position: 'top',
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(tooltipItem) {
+                                            const { x, y, chromosome } = tooltipItem.raw;
+                                            return `Chromosome: ${chromosome}, Position: ${x}, iHS Score: ${y}`;
+                                        }
+                                    }
+                                },
+                                annotation: {
+                                    annotations: [
+                                        {
+                                            type: 'line',
+                                            yMin: 2,
+                                            yMax: 2,
+                                            borderColor: 'red',
+                                            borderWidth: 2,
+                                            borderDash: [5, 5],  // Dotted line
+                                            label: {
+                                                enabled: true,
+                                                content: 'iHS Threshold +2',
+                                                position: 'right',
+                                                backgroundColor: 'white'
+                                            }
+                                        },
+                                        {
+                                            type: 'line',
+                                            yMin: -2,
+                                            yMax: -2,
+                                            borderColor: 'red',
+                                            borderWidth: 2,
+                                            borderDash: [5, 5],  // Dotted line
+                                            label: {
+                                                enabled: true,
+                                                content: 'iHS Threshold -2',
+                                                position: 'right',
+                                                backgroundColor: 'white'
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    type: 'linear',
+                                    title: {
+                                        display: true,
+                                        text: 'Position'
+                                    }
+                                },
+                                y: {
+                                    title: {
+                                        display: true,
+                                        text: 'iHS Score'
+                                    },
+                                    ticks: {
+                                        precision: 3
+                                    },
+                                    min: -2,  // To ensure the threshold lines are visible
+                                    max: 2
+                                }
+                            }
+                        }
+                    });
+                
+                    async function fetchIHSData() {
+                        const response = await fetch('/statistics/ihs_data');
+                        const data = await response.json();
+                        return data;
+                    }
+                
+                    async function updateChart() {
+                        const data = await fetchIHSData();
+                        
+                        console.log("Fetched Data:", data);
+                
+                        chartData.datasets = [];
+                
+                        const gihData = data.filter(item => item.Population === 'GIH');
+                        const pjlData = data.filter(item => item.Population === 'PJL');
+                        
+                        console.log("GIH Data:", gihData); // Debugging line
+                        console.log("PJL Data:", pjlData); // Debugging line
+            
+                        chartData.datasets.push({
+                            label: 'GIH Population',
+                            data: gihData.map(item => ({
+                                x: item.Position, 
+                                y: item.iHS_Score,
+                                chromosome: item.Chromosome
+                            })),
+                            backgroundColor: 'rgba(255, 99, 132, 0.6)', 
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 1,
+                            pointRadius: 3
+                        });
+                
+                        chartData.datasets.push({
+                            label: 'PJL Population',
+                            data: pjlData.map(item => ({
+                                x: item.Position, 
+                                y: item.iHS_Score,
+                                chromosome: item.Chromosome
+                            })),
+                            backgroundColor: 'rgba(54, 162, 235, 0.6)',  
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1,
+                            pointRadius: 3
+                        });
+                
+                        chart.update();
+                    }
+                
+                    updateChart();
+            
+                </script>
+            {% endif %}
+
+            <br>
+        </section>
+
+        <!--Buttons-->
+        <!--Download Summary Statistics button allows downloading the displayed data & Back to Results button navigates back.-->
+        <button id="downloadData">Download Summary Statistics</button>
+        <button id="backToResults">Back to Results</button>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 T2D SNP Explorer</p>
+    </footer>
+
+    <script type="module" src="/static/ui.js"></script>
+    <script>
+        document.getElementById("backToResults").addEventListener("click", function () {
+            window.history.back();
+        });
+
+        // Enables user selection for population comparison and chromosomes.
+        document.getElementById("fstPopulationCompare").addEventListener("change", function () {
+            const selectedComparison = this.value;
+            console.log("Selected Population Comparison: ", selectedComparison); // Was to help us in debugging.
+
+            const chromosomeSelect = document.getElementById("fstChromosomeSelect");
+            chromosomeSelect.disabled = selectedComparison === "";
+
+            if (selectedComparison === "fst_GIHvsGBR") {
+                fetch(`/get_fst_data?populationComparison=${selectedComparison}`) // Uses fetch() to retrieve FST data dynamically.
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log("Fetched Data: ", data); // Debugging step
+                        const tableBody = document.querySelector("#fstTable tbody");
+                        tableBody.innerHTML = "";
+                        data.forEach(row => {
+                            const tr = document.createElement("tr");
+                            tr.innerHTML = `
+                                <td>${row.Chromosome}</td>
+                                <td>${row.Position}</td>
+                                <td>${row.SNP}</td>
+                                <td>${row.FST}</td>
+                            `;
+                            tableBody.appendChild(tr);
+                        });
+                    })
+                    .catch(error => console.error("Error fetching FST data:", error));
+            }
+        });
+
+
+        document.addEventListener("DOMContentLoaded", function () {
+        console.log("Page fully loaded. Attaching event listeners.");
+
+        const downloadButton = document.getElementById("downloadData");
+        if (!downloadButton) {
+            console.error("Download button not found!");
+            return;
+        }
+
+        // Function to extract table data as text
+        function getTableDataAsText(tableId) {
+            console.log(`Extracting data from table: ${tableId}`);
+            const table = document.getElementById(tableId);
+            if (!table) {
+                console.error(`Table with ID ${tableId} not found.`);
+                return `No data available for ${tableId}\n`;
+            }
+            let textData = "";
+            const headers = table.querySelectorAll("thead th");
+            textData += Array.from(headers).map(th => th.innerText).join("\t") + "\n"; // Tab-separated headers
+
+            const rows = table.querySelectorAll("tbody tr");
+            if (rows.length === 0) {
+                console.warn(`⚠️ No data found in ${tableId}.`);
+                return `No data available for ${tableId}\n`;
+            }
+            rows.forEach(row => {
+                const cells = row.querySelectorAll("td");
+                textData += Array.from(cells).map(td => td.innerText.trim()).join("\t") + "\n"; // Tab-separated values
+            });
+            console.log(`Extracted data from ${tableId}:`, textData);
+            return textData;
+        }
+
+
+
+
+        // Function to trigger file download
+        function downloadTextFile(data, filename) {
+            if (!data || data.trim() === "") {
+                console.warn(`No data to download for ${filename}`);
+                alert(`No data available for ${filename}`);
+                return;
+            }
+
+            const blob = new Blob([data], { type: "text/plain" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            console.log(`File downloaded: ${filename}`);
+        }
+
+        // Attach event listener to the download button
+        downloadButton.addEventListener("click", function () {
+            console.log("Download button clicked. Preparing files...");
+
+            const fstData = getTableDataAsText("fstTable"); // Get FST data
+            const ihsData = getTableDataAsText("ihsTable"); // Get iHS data
+
+            downloadTextFile(fstData, "fst_summary_statistics.txt");
+            downloadTextFile(ihsData, "ihs_summary_statistics.txt");
+
+            console.log("Download process completed.");
+        });
+    });
+
+
+
+
+    </script>
+</body>
+</html>
