@@ -1,0 +1,360 @@
+## Datasets used:
+
+- IGSR phase 3 variant sets at [ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/data/](ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/data/) containing 2504 individuals from 26 populations.
+- Sample list containing sample IDs found at [ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/data/](ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/data/) .
+- SHAPEIT genetic maps from University of Oxford at https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3.html, based on IGSR 2504 samples.
+- Top single-variant association  signals for T2D from T2D KP at https://t2d.hugeamp.org/phenotype.html?ancestry=SA&phenotype=T2D meta-analysed from a list of different datasets.
+
+## Extracting population-specific data (GIH & PJL), subsetting for chosen populations and filtering for biallelic SNPs
+
+Used bash to create sample lists of our chosen populations in order to subset the phase 3 variant sets specific to those populations and proceeded with subsetting and biallelic filtering:
+
+```bash
+#!/bin/bash
+
+# Load the bcftools module required for VCF file processing
+module load bcftools
+
+# Define directories for raw VCF files, sample lists, and output files
+RAW_VCF_DIR="/data/home/bt24767/sdp_25/data/raw/IGSR"
+SAMPLE_LIST_DIR="/data/home/bt24767/sdp_25/data/raw/sample_ID"
+OUTPUT_DIR="/data/home/bt24767/sdp_25/data/processed/IGSR/pop_filtered_biallelic"
+
+# Create the output directory if it does not exist
+mkdir -p ${OUTPUT_DIR}
+
+# Define an array of chromosomes to process
+CHROMOSOMES=(2 3 6 7 8 9 10 11 16 17 20)
+
+# Loop over each chromosome
+for CHR in "${CHROMOSOMES[@]}"; do
+    # Print message indicating which chromosome is being processed
+    echo "Processing Chromosome ${CHR}..."
+
+    # Extract biallelic SNPs for GIH population
+    # -S: Specify sample list
+    # -m2 -M2: Keep only biallelic sites
+    # -v snps: Select SNPs only
+    # --threads 4: Use 4 threads for faster processing
+    # -Oz: Output compressed VCF (.vcf.gz)
+    # -o: Specify output file
+    bcftools view -S ${SAMPLE_LIST_DIR}/gih_samples.txt -m2 -M2 -v snps --threads 4 -Oz -o ${OUTPUT_DIR}/chr${CHR}_GIH_biallelic.vcf.gz ${RAW_VCF_DIR}/ALL.chr${CHR}.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz
+
+    # Extract biallelic SNPs for PJL population (same options as above)
+    bcftools view -S ${SAMPLE_LIST_DIR}/pjl_samples.txt -m2 -M2 -v snps --threads 4 -Oz -o ${OUTPUT_DIR}/chr${CHR}_PJL_biallelic.vcf.gz ${RAW_VCF_DIR}/ALL.chr${CHR}.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz
+
+    # Create index files for the filtered VCF files
+    # -t: Create tabix index for fast random access
+    bcftools index -t ${OUTPUT_DIR}/chr${CHR}_GIH_biallelic.vcf.gz
+    bcftools index -t ${OUTPUT_DIR}/chr${CHR}_PJL_biallelic.vcf.gz
+
+    # Print message indicating completion of the chromosome processing
+    echo "Chromosome ${CHR} completed."
+done
+
+# Print final success message
+echo "All chromosomes processed successfully."
+
+```
+
+## Preprocess data for selscan and then normalise iHS results.
+
+### Interpolating and subsetting to ensure a 1 to 1 between map and VCF as expected by selscan
+
+```python
+# Import necessary libraries
+import pandas as pd  # For handling data in DataFrames
+import glob  # For file searching based on patterns
+import gzip  # For reading compressed VCF files
+import numpy as np  # For numerical computations
+from scipy.interpolate import Akima1DInterpolator  # For Akima interpolation
+import os  # For file and directory operations
+import re  # For regular expressions
+import subprocess  # For executing shell commands
+
+# Set input and output directories for VCF files and recombination maps
+vcf_dir = "data/processed/biallelic_vcfs/"
+rec_map_dir = "data/raw/rec_map/"
+map_output_dir = "data/processed/interpolated_maps/"
+vcf_output_dir = "data/processed/filtered_vcfs/"
+
+# Ensure that the output directories exist; create them if they don't
+os.makedirs(map_output_dir, exist_ok=True)
+os.makedirs(vcf_output_dir, exist_ok=True)
+
+# Define a function to perform interpolation of recombination maps and filtering of VCF files
+def interpolate_recombination_map(vcf_file, rec_map_file, map_output_file, filtered_vcf_file):
+    """
+    Interpolates genetic positions (cM) for each SNP in the VCF using Akima interpolation.
+    Saves a filtered VCF containing only SNPs within the map range.
+    """
+
+    # Extract chromosome number and population information from the VCF filename
+    match = re.search(r"chr(\d+)_([A-Z]+)_biallelic\.vcf\.gz", vcf_file)
+    if not match:
+        print(f" Skipping {vcf_file} (Invalid format)")
+        return
+
+    # Extract chromosome number and population
+    chr_num, population = match.groups()
+    print(f" Processing Chromosome {chr_num} for Population {population}...")
+
+    # Load SNP positions from VCF file
+    vcf_snps = []  # To store SNP positions
+    vcf_lines = []  # To store VCF lines for later saving filtered VCF
+    with gzip.open(vcf_file, "rt") as f:
+        for line in f:
+            if line.startswith("#"):
+                vcf_lines.append(line)  # Keep header lines for the filtered VCF
+                continue
+            cols = line.strip().split("\t")
+            vcf_snps.append(int(cols[1]))  # Extract SNP position (column 2 in VCF)
+            vcf_lines.append(line)  # Store all lines for later filtering
+
+    # Remove duplicates and sort SNP positions
+    vcf_snps = sorted(set(vcf_snps))
+
+    # Load the recombination map
+    rec_map = pd.read_csv(rec_map_file, sep="\s+", comment='p', header=0, names=["POS", "Rate", "GeneticPos"])
+    rec_map = rec_map.drop_duplicates(subset=["POS"]).sort_values(by="POS", ascending=True, ignore_index=True)
+
+    # Extract min and max positions from the recombination map to prevent extrapolation
+    min_map_pos = rec_map["POS"].min()
+    max_map_pos = rec_map["POS"].max()
+
+    # Filter SNPs that fall outside the recombination map range
+    valid_snps = set(pos for pos in vcf_snps if min_map_pos <= pos <= max_map_pos)
+
+    # Save a filtered VCF file with only valid SNPs as a plain text first
+    uncompressed_vcf_file = filtered_vcf_file.replace(".vcf.gz", ".vcf")
+    with open(uncompressed_vcf_file, "w") as out_vcf:
+        for line in vcf_lines:
+            if line.startswith("#"):
+                out_vcf.write(line)  # Write headers directly
+            else:
+                pos = int(line.split("\t")[1])
+                if pos in valid_snps:
+                    out_vcf.write(line)  # Write only valid SNPs
+
+    # Compress the filtered VCF using bgzip and create an index with tabix
+    subprocess.run(f"bgzip -f {uncompressed_vcf_file}", shell=True)
+    subprocess.run(f"tabix -p vcf {filtered_vcf_file}", shell=True)
+
+    print(f" Filtered VCF saved and indexed: {filtered_vcf_file}")
+
+    # Perform Akima interpolation for valid SNPs based on the recombination map
+    interpolator = Akima1DInterpolator(rec_map["POS"], rec_map["GeneticPos"])
+    interpolated_cM = interpolator(sorted(valid_snps))
+
+    # Ensure `cM` values are strictly increasing to prevent issues in downstream analysis
+    for i in range(1, len(interpolated_cM)):
+        interpolated_cM[i] = max(interpolated_cM[i], interpolated_cM[i - 1] + 1e-7)
+
+    # Save the interpolated map in a format compatible with Selscan
+    with open(map_output_file, "w") as out_map:
+        for pos, cM in zip(sorted(valid_snps), interpolated_cM):
+            out_map.write(f"{chr_num} . {cM:.6f} {pos}\n")
+
+    print(f" Interpolated map saved: {map_output_file}")
+
+# Process all VCF files for all populations sequentially
+for vcf_file in sorted(glob.glob(f"{vcf_dir}/chr*_biallelic.vcf.gz")):
+    # Extract chromosome and population information using regex
+    match = re.search(r"chr(\d+)_([A-Z]+)_biallelic\.vcf\.gz", vcf_file)
+    if not match:
+        continue
+    chr_num, population = match.groups()
+
+    # Define path for the corresponding recombination map
+    rec_map_file = f"{rec_map_dir}/genetic_map_chr{chr_num}_combined_b37.txt"
+
+    # Check if the recombination map exists for the chromosome
+    if os.path.exists(rec_map_file):
+        # Define paths for the output files
+        map_output_file = f"{map_output_dir}/chr{chr_num}_{population}_interpolated.map"
+        filtered_vcf_file = f"{vcf_output_dir}/chr{chr_num}_{population}_biallelic_filtered.vcf.gz"
+
+        # Run interpolation and filtering function
+        interpolate_recombination_map(vcf_file, rec_map_file, map_output_file, filtered_vcf_file)
+    else:
+        print(f" No recombination map found for chr{chr_num}, skipping...")
+
+# Print final success message
+print("\n Done! Interpolated `.map` files and filtered VCFs generated for all chromosomes & populations.")
+
+```
+
+### Selscan:
+
+```bash
+#!/bin/bash
+
+# Add selscan to PATH
+export PATH=/data/home/bt24767/bin:$PATH
+
+# Set directories for VCF files, maps, and output
+VCF_DIR="/data/home/bt24767/sdp_25/data/processed/filtered_vcfs_nodup"
+MAP_DIR="/data/home/bt24767/sdp_25/data/processed/interpolated_maps"
+OUT_DIR="/data/home/bt24767/sdp_25/results/selscan"
+
+# Ensure output directory exists
+mkdir -p $OUT_DIR
+
+# Define populations and chromosomes to process
+populations=("GIH" "PJL")
+chromosomes=("2" "3" "6" "7" "8" "9" "10" "11" "16" "17" "20")
+
+# Run selscan for each population and chromosome
+for pop in "${populations[@]}"; do
+    for chr in "${chromosomes[@]}"; do
+        # Define file paths for VCF and MAP files and output prefix
+        VCF_FILE="$VCF_DIR/chr${chr}_${pop}_biallelic_filtered_nodup.vcf.gz"
+        MAP_FILE="$MAP_DIR/chr${chr}_${pop}_interpolated.map"
+        OUT_PREFIX="$OUT_DIR/chr${chr}_${pop}_ihs"
+
+        # Run selscan for iHS
+        # --ihs: Calculate iHS statistic
+        # --vcf: Input VCF file
+        # --map: Genetic map file
+        # --out: Output prefix for results
+        # --maf 0.05: Minimum allele frequency cutoff
+        # --threads 4: Use 4 threads for faster processing
+        selscan --ihs \
+                --vcf $VCF_FILE \
+                --map $MAP_FILE \
+                --out $OUT_PREFIX \
+                --maf 0.05 \
+                --threads 4   
+
+        echo "Completed iHS calculation for Chromosome ${chr}, Population ${pop}."
+    done
+done
+
+# Print final success message
+echo "iHS calculations complete."
+
+```
+
+### Normalise:
+
+```bash
+#!/bin/bash
+set -e  # Exit the script if any command fails
+
+# Set paths for norm binary and results directory
+NORM_BIN="/data/home/bt24767/bin/norm"
+RESULTS_DIR="/data/home/bt24767/sdp_25/results/selscan"
+LOG_FILE="$RESULTS_DIR/norm_selscan.log"
+
+# Ensure results directory exists
+mkdir -p $RESULTS_DIR
+
+# Start logging
+echo "Starting normalization with norm at $(date)" > $LOG_FILE
+
+# Normalize all .ihs.out files sequentially
+for ihs_file in $RESULTS_DIR/*.ihs.out; do
+    if [[ -f "$ihs_file" ]]; then
+        # Define output .norm file path
+        norm_file="${ihs_file%.ihs.out}.norm"
+
+        # Run norm and redirect output to the .norm file and log
+        echo "Normalizing $ihs_file ..." | tee -a $LOG_FILE
+        $NORM_BIN --ihs --bins 20 --files $ihs_file > $norm_file 2>> $LOG_FILE
+
+        # Check if normalization was successful
+        if [[ $? -eq 0 ]]; then
+            echo "Successfully normalized $ihs_file" | tee -a $LOG_FILE
+        else
+            echo "Failed to normalize $ihs_file" | tee -a $LOG_FILE
+        fi
+    else
+        echo "No .ihs.out files found in $RESULTS_DIR" | tee -a $LOG_FILE
+    fi
+done
+
+# Log completion message
+echo "Normalization completed at $(date)" >> $LOG_FILE
+
+```
+
+## Create tsv file (Full iHS results)
+
+```bash
+#!/bin/bash
+
+# Define paths
+RESULTS_DIR="/data/home/bt24767/sdp_25/results/selscan"
+TMP_DIR="/data/home/bt24767/sdp_25/tmp"
+TSV_FILE="$TMP_DIR/ihs_summary_table.tsv"
+
+# Create TSV file and add headers
+echo -e "Chromosome\tPosition\tiHS Score\tMean iHS\tStd iHS\tPopulation" > $TSV_FILE
+
+# Loop through chromosomes and populations
+for chr in {2,3,6,7,8,9,10,11,16,17,20}; do
+    for pop in GIH PJL; do
+        norm_file="$RESULTS_DIR/chr${chr}_${pop}_ihs.ihs.out.20bins.norm"
+
+        if [[ -f "$norm_file" ]]; then
+            # Calculate mean and std excluding zeros
+            mean=$(awk '$7 != 0 {sum += $7; count++} END {if (count > 0) print sum/count; else print "NA"}' $norm_file)
+            std=$(awk '$7 != 0 {sum += $7; sumsq += $7^2; count++} END {if (count > 0) print sqrt(sumsq/count - (sum/count)^2); else print "NA"}' $norm_file)
+
+            # Extract positions and iHS scores and append to TSV
+            awk -v chr="$chr" -v pop="$pop" -v mean="$mean" -v std="$std" \
+                '{print chr "\t" $2 "\t" $7 "\t" mean "\t" std "\t" pop}' \
+                $norm_file >> $TSV_FILE
+        else
+            echo "Missing file: $norm_file"
+        fi
+    done
+done
+
+echo "Summary TSV saved at: $TSV_FILE"
+
+```
+
+## Subset tsv by T2D snp positions for databse
+
+```python
+import pandas as pd
+
+# Define file paths
+ihs_file = 'ihs_summary_table.tsv'
+t2d_file = 't2d_snp_positions.txt'
+output_file = 't2d_snp_summary.tsv'
+
+# Load iHS summary data
+ihs_df = pd.read_csv(ihs_file, sep='\t')
+
+# Load T2D SNP positions
+t2d_positions = []
+with open(t2d_file, 'r') as f:
+    for line in f:
+        chrom, pos = line.strip().split()
+        t2d_positions.append((int(chrom), int(pos)))
+
+# Convert to DataFrame for easy filtering
+t2d_df = pd.DataFrame(t2d_positions, columns=['Chromosome', 'Position'])
+
+# Merge to extract only T2D SNPs from the summary
+t2d_snps_df = pd.merge(t2d_df, ihs_df, on=['Chromosome', 'Position'], how='inner')
+
+# Recalculate mean and std for the extracted T2D SNPs
+mean_ihs = t2d_snps_df['iHS Score'].mean()
+std_ihs = t2d_snps_df['iHS Score'].std()
+
+# Update the mean and std columns with the recalculated values
+t2d_snps_df['Mean iHS'] = mean_ihs
+t2d_snps_df['Std iHS'] = std_ihs
+
+# Save the T2D SNPs to a new TSV file with updated mean and std
+t2d_snps_df.to_csv(output_file, sep='\t', index=False)
+
+print(f"Extracted {t2d_snps_df.shape[0]} T2D SNPs.")
+print(f"Mean iHS for T2D SNPs: {mean_ihs}")
+print(f"Std iHS for T2D SNPs: {std_ihs}")
+print(f"Saved to {output_file}")
+
+```
