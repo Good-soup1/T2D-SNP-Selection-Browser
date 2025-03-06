@@ -23,34 +23,17 @@ Directory structure:
     ├── population.html
     └── results.html
 
-Database schema visualisation (genetics.db.py):
-+-------------------+           +-------------------+
-|  associations     |           |  uniprot_data     |
-+-------------------+           +-------------------+
-| varId             |           | gene_name         |
-| alignment         |           | mapped_gene_id (FK)--> gene.gene_id
-| alt               |           | uniprot_url       |
-| ancestry          |           | uniprot_id        |
-| beta              |           +-------------------+
-| chromosome        |
-| clumpEnd          |           +-------------------+       +-------------------+       +-------------------+
-| clumpStart        |           |      gene         |       |    population     |       |       snp         |
-| dataset           |           +-------------------+       +-------------------+       +-------------------+
-| inMetaTypes       |           | gene_id (PK)      |<------| population_id (PK)|       | snp_id (PK)       |
-| leadSNP           |           | gene_name         |       | population_name   |       | snp_name          |
-| n                 |           | functional_term   |       | sampling_location |       | chromosome        |
-| pValue            |           +-------------------+       +-------------------+       | start_position    |
-| phenotype         |                                                                   | end_position      |
-| position          |                                                                   | p_value           |
-| posteriorProbability|         +-------------------------------+                       | mapped_gene_id (FK)--> gene.gene_id
-| reference         |           | snp_population_selection_stats|                       +-------------------+
-| source            |           +-------------------------------+
-| stdErr            |           | snp_id (FK) -------------------> snp.snp_id
-| clump             |           | population_id (FK) ------------> population.population_id
-| dbSNP             |           | allele_freq                   |
-| consequence       |           | selection_statistic_1         |
-| nearest           |           | selection_statistic_2         |
-| minorAllele       |           +-------------------------------+
-| maf               |
-| af                |
-+-------------------+
+Requirements:
+Library 
+Sqlite3
+Panda
+JSON
+
+Required files
+associations.tsv
+uniprot_data.tsv 
+Populationdetails.tsv
+sub_population.tsv
+t2d_snps_with_fst_GIHvsGBR.csv
+ihs_summary_table_SA.tsv
+
